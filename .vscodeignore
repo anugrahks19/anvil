@@ -1,0 +1,11 @@
+.demo/**
+.vscode/**
+src/**
+tests/**
+node_modules/**
+tsconfig.json
+package-lock.json
+.git/**
+.gitignore
+*.vsix
+**/__pycache__/**

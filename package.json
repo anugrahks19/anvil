@@ -1,0 +1,130 @@
+{
+  "name": "anvil",
+  "displayName": "Anvil",
+  "description": "Editor-native coding agent powered by local TrueForge sessions",
+  "version": "0.1.0",
+  "publisher": "anvil-team",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "capabilities": { "untrustedWorkspaces": { "supported": false } },
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:anvil.inlineEdit",
+    "onCommand:anvil.openPanel",
+    "onCommand:anvil.connectApi",
+    "onCommand:anvil.connectLocalModel",
+    "onView:anvil.panel"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "anvil.inlineEdit",
+        "title": "Anvil: Inline Edit"
+      },
+      {
+        "command": "anvil.openPanel",
+        "title": "Anvil: Open Agent"
+      },
+      {
+        "command": "anvil.undoLastApply",
+        "title": "Anvil: Undo Last Agent Apply"
+      },
+      {
+        "command": "anvil.connectApi",
+        "title": "Anvil: Connect Model API (Cloud or Offline)"
+      },
+      {
+        "command": "anvil.connectLocalModel",
+        "title": "Anvil: Connect Offline / Local Model"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "anvil.inlineEdit",
+        "key": "ctrl+alt+f",
+        "mac": "cmd+alt+f",
+        "when": "editorTextFocus && editorHasSelection"
+      }
+    ],
+    "views": {
+      "explorer": [
+        {
+          "id": "anvil.panel",
+          "type": "webview",
+          "name": "Anvil"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Anvil",
+      "properties": {
+        "anvil.trueForgeUrl": {
+          "type": "string",
+          "default": "http://localhost:8790",
+          "description": "URL of the local TrueForge server."
+        },
+        "anvil.modelProfiles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "TrueForge model names in preference order, such as google-gemini/gemini-3-5-flash-lite or local-ollama/qwen2-5-coder-7b."
+        },
+        "anvil.contextBudgetTokens": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 24000,
+          "description": "Estimated token budget for automatic context assembly (0 auto-scales by model contextLength up to 6000, ideal for smaller offline local models)."
+        },
+        "anvil.enableSubagents": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow TrueForge dynamic subagents for multi-file Agent Mode research (single-file inline edits stay single-thread for speed)."
+        },
+        "anvil.mcpServerName": {
+          "type": "string",
+          "default": "anvil-editor",
+          "description": "Name of this extension's MCP connector in TrueForge."
+        },
+        "anvil.mcpPort": {
+          "type": "number",
+          "default": 39281,
+          "minimum": 1024,
+          "maximum": 65535,
+          "description": "Loopback port for editor MCP tools; register http://127.0.0.1:<port>/mcp in TrueForge."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --platform=node --format=cjs --target=node20 --external:vscode --outfile=dist/extension.js",
+    "watch": "npm run build -- --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/**/*.test.ts",
+    "check": "npm run typecheck && npm run build && npm test",
+    "package": "npm run check && vsce package --no-dependencies --allow-missing-repository --no-rewrite-relative-links"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@truefoundry/trueforge-sdk": "^0.185.0",
+    "diff": "^9.0.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/vscode": "^1.96.0",
+    "@vscode/vsce": "^4.1.1",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}

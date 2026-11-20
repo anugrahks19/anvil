@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.vsix
+.env
+.env.*
+!.env.example
+.vscode-test/
+coverage/
+*.log
+.demo/
+.venv/
+**/__pycache__/
+.vscode/settings.json
