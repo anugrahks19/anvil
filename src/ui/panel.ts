@@ -2,6 +2,10 @@ import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 import type { FileDiagnostics, FileIntent } from '../review/analysis';
 import type { ContextSelection } from '../context/assembly';
+import type { ForgeEvent } from '../trueforge/client';
+
+type HarnessEvent = Extract<ForgeEvent, { type: 'compaction' | 'subagent' }>;
+type HarnessActivity = Record<string, HarnessEvent['phase']>;
 
 export interface ReviewHunkView {
   id: string;
@@ -68,6 +72,7 @@ interface PanelState {
   stream: string;
   reasoningSnippet: string;
   activities: string[];
+  harness: Record<HarnessEvent['type'], HarnessActivity>;
   context: ContextSelection[];
   contextUsedTokens: number;
   contextBudgetTokens: number;
@@ -94,6 +99,7 @@ export class ForgePanel implements vscode.WebviewViewProvider {
     stream: '',
     reasoningSnippet: '',
     activities: [],
+    harness: { compaction: {}, subagent: {} },
     context: [],
     contextUsedTokens: 0,
     contextBudgetTokens: 0,
@@ -214,6 +220,7 @@ export class ForgePanel implements vscode.WebviewViewProvider {
     this.state.telemetry = undefined;
     this.state.review = undefined;
     this.state.sessionId = undefined;
+    this.state.harness = { compaction: {}, subagent: {} };
     this.state.applying = false;
     this.pushState();
   }
@@ -259,6 +266,7 @@ export class ForgePanel implements vscode.WebviewViewProvider {
     this.state.stream = '';
     this.state.reasoningSnippet = '';
     this.state.sessionId = undefined;
+    this.state.harness = { compaction: {}, subagent: {} };
     this.pushState();
   }
 
@@ -266,6 +274,14 @@ export class ForgePanel implements vscode.WebviewViewProvider {
     this.state.activities.push(text);
     this.state.activities = this.state.activities.slice(-30);
     this.pushState();
+  }
+
+  recordHarnessEvent(event: HarnessEvent): void {
+    const threads = this.state.harness[event.type];
+    this.state.harness[event.type] = { ...threads, [event.threadId]: event.phase };
+    const label = event.type === 'compaction' ? 'context compaction' : 'subagent';
+    const details = event.type === 'subagent' ? `: ${event.title}` : '';
+    this.addActivity(`TrueForge ${label} ${event.phase}${details}`);
   }
 
   setContext(selections: PanelState['context'], usedTokens = 0, budgetTokens = 0): void {

@@ -116,8 +116,8 @@ test('surfaces deferred call_tool invocations and context compaction events', as
     create: async () => ({ data: { id: 'session-ce' } }),
     createTurnStream: async () => (async function* () {
       yield { id: 'e1', type: 'turn.created', turnId: 't1' };
-      yield { id: 'e2', type: 'thread.context_compaction_started' satisfies TrueForgeApi.ThreadContextCompactionStartedEvent['type'] };
-      yield { id: 'e3', type: 'thread.context_compaction_finished' satisfies TrueForgeApi.ThreadContextCompactionFinishedEvent['type'] };
+      yield { id: 'e2', type: 'thread.context_compaction_started' satisfies TrueForgeApi.ThreadContextCompactionStartedEvent['type'], threadId: 'main' };
+      yield { id: 'e3', type: 'thread.context_compaction_finished' satisfies TrueForgeApi.ThreadContextCompactionFinishedEvent['type'], threadId: 'main' };
       yield {
         id: 'e4', type: 'model.message', threadId: 'main',
         toolCalls: [{ id: 'c1', toolInfo: { name: 'call_tool' }, function: { arguments: '{"mcp_server":"anvil-editor","tool_name":"find_symbol","input":{"name":"Flask"}}' } }],
@@ -129,8 +129,8 @@ test('surfaces deferred call_tool invocations and context compaction events', as
   const events: ForgeEvent[] = [];
   const run = await new ForgeClient(options, api).start('find symbol', event => events.push(event));
   await run.done;
-  assert.ok(events.some(event => event.type === 'compaction' && event.phase === 'started'));
-  assert.ok(events.some(event => event.type === 'compaction' && event.phase === 'finished'));
+  assert.ok(events.some(event => event.type === 'compaction' && event.phase === 'started' && event.threadId === 'main'));
+  assert.ok(events.some(event => event.type === 'compaction' && event.phase === 'finished' && event.threadId === 'main'));
   assert.ok(events.some(event => event.type === 'tool' && event.name === 'find_symbol' && event.deferred === true));
 });
 

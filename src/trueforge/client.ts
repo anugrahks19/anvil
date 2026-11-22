@@ -16,7 +16,7 @@ export type ForgeEvent =
   | { type: 'reasoning'; text: string }
   | { type: 'tool'; name: string; args?: string; isError?: boolean; deferred?: boolean }
   | { type: 'loop'; tool: string; count: number; action: 'warn' | 'abort' }
-  | { type: 'compaction'; phase: 'started' | 'finished' }
+  | { type: 'compaction'; phase: 'started' | 'finished'; threadId: string }
   | { type: 'subagent'; phase: 'started' | 'finished'; threadId: string; title: string }
   | { type: 'metrics'; metrics: ForgeMetrics }
   | { type: 'approval'; toolCallId: string; name: string; args?: string }
@@ -244,10 +244,10 @@ export class ForgeClient {
           if (event.content) this.emit({ type: 'delta', text: event.content });
         }
         if (event.type === 'thread.context_compaction_started') {
-          this.emit({ type: 'compaction', phase: 'started' });
+          this.emit({ type: 'compaction', phase: 'started', threadId: event.threadId });
         }
         if (event.type === 'thread.context_compaction_finished') {
-          this.emit({ type: 'compaction', phase: 'finished' });
+          this.emit({ type: 'compaction', phase: 'finished', threadId: event.threadId });
         }
         if (event.type === 'thread.created' && event.threadId && event.threadId !== 'main') {
           this.emit({ type: 'subagent', phase: 'started', threadId: event.threadId, title: event.title || 'Subagent' });

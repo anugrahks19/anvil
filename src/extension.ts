@@ -555,10 +555,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         );
         break;
       case 'compaction':
-        panel.addActivity(`TrueForge context compaction ${event.phase}`);
-        break;
       case 'subagent':
-        panel.addActivity(`TrueForge subagent ${event.phase}: ${event.title}`);
+        panel.recordHarnessEvent(event);
         break;
       case 'status':
         if (event.status === 'running') panel.setStatus('Running');

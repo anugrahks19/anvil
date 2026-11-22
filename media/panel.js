@@ -398,7 +398,7 @@ function makeTelemetryChip(label, value, extraClass) {
   return chip;
 }
 
-function renderTelemetry(telemetry) {
+function renderTelemetry(telemetry, harness, running) {
   const bar = $('telemetry');
   if (!telemetry) { bar.classList.add('hidden'); bar.replaceChildren(); return; }
   bar.classList.remove('hidden');
@@ -426,6 +426,16 @@ function renderTelemetry(telemetry) {
     chips.push(makeTelemetryChip('', telemetry.costUsd === 0 ? '$0' : `$${telemetry.costUsd.toFixed(4)}`, telemetry.costUsd === 0 ? 'local' : ''));
   } else if (telemetry.isLocal) {
     chips.push(makeTelemetryChip('', 'Local $0', 'local'));
+  }
+  for (const [type, label] of [['subagent', 'TrueForge subagents'], ['compaction', 'TrueForge compaction']]) {
+    const phases = Object.values(harness[type]);
+    if (phases.length === 0) continue;
+    const finished = phases.filter(phase => phase === 'finished').length;
+    const pending = phases.length - finished;
+    const parts = [];
+    if (pending) parts.push(`${pending} ${running ? 'running' : 'unfinished'}`);
+    if (finished) parts.push(`${finished} finished`);
+    chips.push(makeTelemetryChip(label, parts.join(' · '), finished && !pending ? 'highlight' : ''));
   }
   bar.replaceChildren(...chips);
 }
@@ -615,7 +625,7 @@ function updateStatusBadge(state) {
 
 function render(state) {
   updateStatusBadge(state);
-  renderTelemetry(state.telemetry);
+  renderTelemetry(state.telemetry, state.harness, state.running);
   syncThinkingLoop(state);
   renderStream($('stream'), state.stream, Boolean(state.running), Boolean(state.review));
   $('activities').replaceChildren(...state.activities.map(renderActivity));
