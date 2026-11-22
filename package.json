@@ -2,7 +2,7 @@
   "name": "anvil",
   "displayName": "Anvil",
   "description": "Editor-native coding agent powered by local TrueForge sessions",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "anvil-team",
   "license": "MIT",
   "engines": {
@@ -13,7 +13,11 @@
     "Other"
   ],
   "main": "./dist/extension.js",
-  "capabilities": { "untrustedWorkspaces": { "supported": false } },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false
+    }
+  },
   "activationEvents": [
     "onStartupFinished",
     "onCommand:anvil.inlineEdit",

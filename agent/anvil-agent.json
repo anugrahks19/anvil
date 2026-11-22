@@ -9,7 +9,7 @@
       "enableTools": ["@all"],
       "requireApprovalForTools": ["apply_reviewed_proposal", "run_command"],
       "preload": false,
-      "preloadTools": ["search_code", "read_file", "propose_edit", "apply_reviewed_proposal", "run_command"]
+      "preloadTools": ["list_files", "search_code", "read_file", "propose_edit", "apply_reviewed_proposal", "run_command"]
     }
   ],
   "config": {

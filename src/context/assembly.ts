@@ -22,6 +22,7 @@ export interface ContextSelection {
   path: string;
   reason: string;
   tokens: number;
+  line?: number;
 }
 
 export interface ContextResult {
@@ -615,12 +616,23 @@ export async function assembleContext(
     const reasonText = uniqueReasons.join('; ');
     const header = `File: ${candidate.path}\nReason: ${reasonText}\n`;
     const allowedChars = Math.max(0, limit * 4 - header.length);
-    const chunk = header + excerpt.slice(0, allowedChars);
+    const included = excerpt.slice(0, allowedChars);
+    const chunk = header + included;
     const used = tokens(chunk);
     if (candidate.explicit) explicitUsed += used;
     else automaticUsed += used;
     chunks.push(chunk);
-    selections.push({ path: candidate.path, reason: reasonText, tokens: used });
+    let line: number | undefined;
+    let bestMatch = -1;
+    for (const match of included.matchAll(/^([1-9]\d*): (.*)$/gm)) {
+      const value = match[2].toLowerCase();
+      const score = excerptTerms.reduce((sum, term) => sum + (value.includes(term) ? term.length : 0), 0);
+      if (score > bestMatch) {
+        bestMatch = score;
+        line = Number(match[1]);
+      }
+    }
+    selections.push({ path: candidate.path, reason: reasonText, tokens: used, line });
   }
 
   if (options.selection) {

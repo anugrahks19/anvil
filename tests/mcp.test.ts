@@ -10,6 +10,7 @@ import { promisify } from 'node:util';
 import { TrueForge } from '@truefoundry/trueforge-sdk';
 import { ForgeClient, type ForgeEvent } from '../src/trueforge/client';
 import { assembleContext } from '../src/context/assembly';
+import { verifySelectedHunks } from '../src/review/verification';
 
 const exec = promisify(execFile);
 
@@ -206,7 +207,14 @@ test('local MCP endpoint stages, reviews, applies, and undoes hunks', { timeout:
       const helpers = path.join(root, relativePath);
       const originalHelpers = await readFile(path.join(flaskRoot, relativePath), 'utf8');
       const fixtureFiles = taskB ? ['src', 'tests', 'docs', 'pyproject.toml'] : ['src'];
-      await Promise.all(fixtureFiles.map(file => cp(path.join(flaskRoot, file), path.join(root, file), { recursive: true })));
+      await Promise.all(fixtureFiles.map(file => cp(path.join(flaskRoot, file), path.join(root, file), {
+        recursive: true, filter: source => path.basename(source) !== '__pycache__' && !source.endsWith('.pyc'),
+      })));
+      const python = process.env.ANVIL_FLASK_PYTHON ?? path.join(flaskRoot, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
+      if (taskB) {
+        await exec('git', ['init', '-q'], { cwd: root });
+        await exec('git', ['-c', 'core.autocrlf=false', 'add', '-f', '--', ...fixtureFiles], { cwd: root });
+      }
       const connector = `anvil-smoke-${process.pid}`;
       const baseUrl = 'http://localhost:8790';
       const api = new TrueForge({ baseUrl });
@@ -244,8 +252,21 @@ test('local MCP endpoint stages, reviews, applies, and undoes hunks', { timeout:
               await client.approve(event.toolCallId, false, 'This proposal is incomplete. Keep it staged and finish the requested implementation, test, and documentation before asking for review again.');
               return;
             }
+            const hunkIds = proposal.files.flatMap(file => file.hunks.map(hunk => hunk.id));
+            if (taskB) {
+              const patches = bridge!.previewSelectedHunks(proposal_id, hunkIds);
+              const testFiles = new Set(['tests/test_cli.py', ...patches.map(file => file.path).filter(file => /^tests\/.*test_[^/]+\.py$/.test(file))]);
+              for (const file of testFiles) {
+                const result = await verifySelectedHunks(root, patches, python, file, context.signal);
+                console.log(`Pre-apply ${file}: ${result.passed ? 'passed' : 'failed'}`);
+                if (!result.passed) {
+                  await client.approve(event.toolCallId, false, `The proposed selection failed pre-apply pytest. Preserve existing behavior, repair the staged edits, and request review again.\n${result.output}`);
+                  return;
+                }
+              }
+            }
             reviewedPaths = proposal.files.map(file => file.path);
-            bridge!.setSelectedHunks(proposal_id, proposal.files.flatMap(file => file.hunks.map(hunk => hunk.id)));
+            bridge!.setSelectedHunks(proposal_id, hunkIds);
             await client.approve(event.toolCallId, true);
           })();
           void approval.catch(() => client.cancel());
@@ -270,7 +291,6 @@ test('local MCP endpoint stages, reviews, applies, and undoes hunks', { timeout:
         await approval;
         assert.ok(reviewedPaths.length, 'TrueForge must pause for hunk review');
         assert.ok(sawStreaming, 'TrueForge should stream a model response');
-        const python = process.env.ANVIL_FLASK_PYTHON ?? path.join(flaskRoot, process.platform === 'win32' ? '.venv/Scripts/python.exe' : '.venv/bin/python');
         const pythonOptions = { cwd: root, env: { ...process.env, PYTHONPATH: path.join(root, 'src') }, timeout: 30_000 };
         if (taskB) {
           assert.ok(new Set(reviewedPaths).size >= 3, `Expected at least three changed files, got ${reviewedPaths.join(', ')}`);
@@ -295,7 +315,8 @@ test('local MCP endpoint stages, reviews, applies, and undoes hunks', { timeout:
         }
         console.log(`Verified Flask Task ${taskB ? 'B' : 'A'} through TrueForge session ${run.sessionId}`);
       } finally {
-        await api.settings.mcpServers.delete(connector);
+        try { await api.settings.mcpServers.delete(connector); }
+        catch (error) { console.warn(`Could not remove temporary test connector ${connector}: ${String(error).split('\n')[0]}`); }
       }
     }
   } finally {

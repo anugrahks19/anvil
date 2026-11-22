@@ -132,6 +132,10 @@ export class EditorBridge implements vscode.Disposable {
     this.store.select(id, ids);
   }
 
+  previewSelectedHunks(id: string, ids: string[]) {
+    return this.store.selected(id, ids);
+  }
+
   discardAll(): void {
     this.approvedCommand = undefined;
     this.commandAbort?.abort();

@@ -70,24 +70,29 @@ export class ProposalStore {
   }
 
   select(id: string, hunkIds: readonly string[]): void {
+    this.selectedHunks = this.validateSelection(id, hunkIds);
+  }
+
+  private validateSelection(id: string, hunkIds: readonly string[]): Set<string> {
     const proposal = this.get(id);
     if (!proposal) throw new Error('Proposal no longer exists');
     const allowed = new Set(proposal.files.flatMap(file => file.hunks.map(hunk => hunk.id)));
     for (const hunkId of hunkIds) {
       if (!allowed.has(hunkId)) throw new Error(`Unknown hunk: ${hunkId}`);
     }
-    this.selectedHunks = new Set(hunkIds);
+    return new Set(hunkIds);
   }
 
-  selected(id: string): { path: string; baseText: string; baseHash: string; resultText: string }[] {
+  selected(id: string, hunkIds?: readonly string[]): { path: string; baseText: string; baseHash: string; resultText: string }[] {
     const proposal = this.get(id);
     if (!proposal) throw new Error('Proposal no longer exists');
-    if (!this.selectedHunks) throw new Error('Review each hunk in the editor before applying');
+    const selection = hunkIds ? this.validateSelection(id, hunkIds) : this.selectedHunks;
+    if (!selection) throw new Error('Review each hunk in the editor before applying');
     return proposal.files.map(file => ({
       path: file.path,
       baseText: file.baseText,
       baseHash: file.baseHash,
-      resultText: applySelectedHunks(file, this.selectedHunks!),
+      resultText: applySelectedHunks(file, selection),
     })).filter(file => file.baseText !== file.resultText);
   }
 

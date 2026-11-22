@@ -4,6 +4,7 @@ import { assembleContext } from './context/assembly';
 import { EditorBridge } from './mcp/editorBridge';
 import { analyzeProposalFile, checkBufferSyntax, type DiagnosticIssue, type FileDiagnostics } from './review/analysis';
 import type { Proposal } from './review/proposalStore';
+import { verifySelectedHunks, workspacePython } from './review/verification';
 import { ForgeClient, type ForgeEvent, listTrueForgeModels, registerModelProvider, type WellKnownProviderType } from './trueforge/client';
 import { ForgePanel, type PanelAction, type ReviewView, type TelemetryState } from './ui/panel';
 
@@ -47,10 +48,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   let appliedInRun = false;
   let applyRequestedInRun = false;
   let retryAbort: AbortController | undefined;
+  let verificationAbort: AbortController | undefined;
   let runStartedAt = 0;
   let reasoningBuffer = '';
   let telemetry: TelemetryState | undefined;
   const modelContextLengths = new Map<string, number>();
+  const contextLocations = new Map<string, number | undefined>();
   let selectedModel = configuredModels()[0] ?? '';
 
   const pushTelemetry = () => {
@@ -169,6 +172,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   context.subscriptions.push({ dispose: () => {
     activeRun++;
+    verificationAbort?.abort();
     void activeClient?.cancel();
     void bridge?.stop();
   } });
@@ -182,7 +186,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         await cancel();
         break;
       case 'approve':
-        if (!pendingReview || pendingReview.approvalSent || action.proposalId !== pendingReview.proposalId) return;
+        if (verificationAbort || !pendingReview || pendingReview.approvalSent || action.proposalId !== pendingReview.proposalId) return;
         try {
           bridge?.setSelectedHunks(action.proposalId, action.selectedHunkIds);
           panel.setStatus('Applying selected hunks');
@@ -200,8 +204,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           panel.addActivity(`Approval error: ${errorMessage(error)}`);
         }
         break;
+      case 'verify':
+        await verifyReview(action.proposalId, action.selectedHunkIds);
+        break;
+      case 'cancelVerify':
+        verificationAbort?.abort();
+        break;
       case 'reject':
-        if (!pendingReview || pendingReview.approvalSent || action.proposalId !== pendingReview.proposalId) return;
+        if (verificationAbort || !pendingReview || pendingReview.approvalSent || action.proposalId !== pendingReview.proposalId) return;
         try {
           pendingReview.approvalSent = true;
           panel.setApplying(true);
@@ -223,6 +233,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       case 'preview':
         await showPreview(action.proposalId, action.path);
         break;
+      case 'openContext': {
+        if (!workspaceRoot || !contextLocations.has(action.path)) return;
+        try {
+          const document = await vscode.workspace.openTextDocument(vscode.Uri.file(path.join(workspaceRoot, action.path)));
+          const line = Math.min(document.lineCount - 1, (contextLocations.get(action.path) ?? 1) - 1);
+          const selection = new vscode.Range(line, 0, line, 0);
+          await vscode.window.showTextDocument(document, { selection, preview: true });
+        } catch (error) {
+          panel.addActivity(`Could not open context: ${errorMessage(error)}`);
+        }
+        break;
+      }
       case 'undo':
         await undo();
         break;
@@ -252,6 +274,44 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   }
 
+  async function verifyReview(proposalId: string, ids: string[]): Promise<void> {
+    if (!workspaceRoot || !bridge || verificationAbort || pendingReview?.proposalId !== proposalId || pendingReview.approvalSent) return;
+    const controller = new AbortController();
+    verificationAbort = controller;
+    const selection = JSON.stringify([...ids].sort());
+    try {
+      const patches = bridge.previewSelectedHunks(proposalId, ids);
+      if (!patches.length) throw new Error('Select at least one changed hunk to verify');
+      const target = await vscode.window.showInputBox({
+        title: 'Verify selected hunks with pytest',
+        prompt: 'Run this Python test against a temporary copy of the tracked workspace',
+        placeHolder: 'tests/test_cli.py',
+        value: patches.find(file => /(?:^|\/)test_[^/]+\.py$/.test(file.path))?.path,
+      });
+      if (!target?.trim()) return;
+      controller.signal.throwIfAborted();
+      if (pendingReview?.proposalId !== proposalId) return;
+      const python = await workspacePython(workspaceRoot);
+      const confirmed = await vscode.window.showWarningMessage(
+        `Run pytest on ${target.trim()} with ${python}?`,
+        { modal: true, detail: 'Tests execute local code with your user permissions. Anvil applies the selected hunks to a temporary tracked-file copy for this check.' }, 'Run pytest',
+      );
+      if (confirmed !== 'Run pytest' || pendingReview?.proposalId !== proposalId) return;
+      panel.setVerification({ proposalId, selection, status: 'running', message: `Running ${target.trim()} in a temporary copy…` });
+      const result = await verifySelectedHunks(workspaceRoot, patches, python, target.trim(), controller.signal);
+      if (pendingReview?.proposalId !== proposalId) return;
+      const label = result.passed ? 'Passed' : 'Failed';
+      panel.setVerification({ proposalId, selection, status: result.passed ? 'passed' : 'failed', message: `${label} · ${target.trim()}\n${result.output}` });
+    } catch (error) {
+      if (pendingReview?.proposalId === proposalId) {
+        if (controller.signal.aborted) panel.setVerification(undefined);
+        else panel.setVerification({ proposalId, selection, status: 'failed', message: errorMessage(error) });
+      }
+    } finally {
+      verificationAbort = undefined;
+    }
+  }
+
   async function runPrompt(prompt: string, activeFile?: string, selection?: string): Promise<void> {
     if (!workspaceRoot || !bridge || !bridgeReady) {
       void vscode.window.showErrorMessage('Open a workspace folder and restart Anvil.');
@@ -278,6 +338,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     appliedInRun = false;
     applyRequestedInRun = false;
     bridge.discardAll();
+    contextLocations.clear();
     panel.resetRun();
     runStartedAt = Date.now();
     reasoningBuffer = '';
@@ -304,6 +365,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         selection,
       });
       if (runId !== activeRun) return;
+      for (const selected of assembled.selections) contextLocations.set(selected.path, selected.line);
       panel.setContext(assembled.selections, assembled.usedTokens, assembled.budgetTokens);
       if (telemetry) {
         telemetry.contextUsedTokens = assembled.usedTokens;
@@ -367,7 +429,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         panel.addActivity('The request was not replayed because it may have already changed files.');
         return;
       }
-      const nonRetryable = /401|403|404|invalid.?key|api.?key.?(?:invalid|not valid)|model.{0,40}not found|unauthori[sz]ed|authentication|permission denied/i.test(message);
+      const nonRetryable = /\b(?:401|403|404)\b|invalid.?key|api.?key.?(?:invalid|not valid)|model.{0,40}not found|unauthori[sz]ed|authentication|permission denied/i.test(message);
       const loopBroken = /loop-breaker/i.test(message);
       const rateLimited = /\b429\b|rate.?limit|quota/i.test(message);
       const canResume = rateLimited && Boolean(client.activeSessionId);
@@ -378,16 +440,17 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         pendingReview = undefined;
         panel.setReview(undefined);
       }
-      if (!nonRetryable && !loopBroken && retry < 2) {
-        const providerDelay = /(?:retry in|retryDelay["':\s]+)\s*(\d+(?:\.\d+)?)\s*s/i.exec(message);
-        const delay = providerDelay ? Math.min(30_000, Math.ceil(Number(providerDelay[1]) * 1000)) : retry === 0 ? 500 : 1500;
+      const providerDelay = /(?:retry in|retryDelay["':\s]+)\s*(\d+(?:\.\d+)?)\s*s/i.exec(message);
+      const requestedMs = providerDelay ? Math.ceil(Number(providerDelay[1]) * 1000) + 1000 : undefined;
+      if (!nonRetryable && !loopBroken && retry < 2 && (requestedMs ?? 0) <= 120_000) {
+        const delay = requestedMs ?? (rateLimited ? 60_000 : retry === 0 ? 500 : 1500);
         panel.addActivity(`Model error; retrying ${modelName} in ${delay} ms (${message})`);
         panel.setStatus('Retrying model');
         const slept = await waitWithCancel(delay);
         if (!slept || runId !== activeRun) return;
         if (canResume) {
           panel.addActivity(`Resuming TrueForge session ${client.activeSessionId} after rate limit`);
-          await launch(models, modelIndex, retry + 1, 'Continue the original request from the prior turn. Keep any staged proposals and finish any missing edits before calling apply_reviewed_proposal.', runId, allowSubagents, client);
+          await launch(models, modelIndex, retry + 1, prompt, runId, allowSubagents, client);
         } else {
           panel.clearStream();
           await launch(models, modelIndex, retry + 1, prompt, runId, allowSubagents);
@@ -427,7 +490,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         });
       };
       const run = existingClient
-        ? await client.resume(prompt, onEvent)
+        ? await client.resume('Continue the original request from the prior turn. Keep any staged proposals and finish any missing edits before calling apply_reviewed_proposal.', onEvent)
         : await client.start(prompt, onEvent);
       if (runId !== activeRun) {
         await client.cancel();
@@ -553,6 +616,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   async function cancel(): Promise<void> {
+    verificationAbort?.abort();
     if (!running || cancelling) return;
     activeRun++;
     running = false;

@@ -2,6 +2,8 @@ const vscode = acquireVsCodeApi();
 const $ = (id) => document.getElementById(id);
 let review;
 let selected = new Set();
+let verification;
+let applying = false;
 let activeCategory = 'all';
 let currentModel = '';
 let currentSessionId = '';
@@ -223,6 +225,18 @@ const CATEGORY_LABELS = {
 
 function updateApproveLabel() {
   const btn = $('approve');
+  const verify = $('verify');
+  const result = $('verificationResult');
+  const belongsToReview = Boolean(review && verification?.proposalId === review.proposalId);
+  const checking = belongsToReview && verification.status === 'running';
+  const sameSelection = belongsToReview && verification.selection === JSON.stringify([...selected].sort());
+  const visible = checking || sameSelection;
+  result.classList.toggle('hidden', !visible);
+  result.textContent = visible ? verification.message : '';
+  verify.textContent = checking ? 'Stop verification' : 'Verify selected';
+  verify.disabled = applying || (!checking && selected.size === 0);
+  btn.disabled = applying || checking || selected.size === 0;
+  $('reject').disabled = applying || checking;
   if (!review) { btn.textContent = 'Apply selected'; return; }
   const total = review.files.reduce((sum, file) => sum + file.hunks.length, 0);
   btn.textContent = `Apply selected (${selected.size}/${total})`;
@@ -249,6 +263,10 @@ function renderReview(value) {
   if (!review || review.proposalId !== value.proposalId) {
     selected = new Set(value.files.flatMap(file => file.hunks.map(hunk => hunk.id)));
     activeCategory = 'all';
+  } else {
+    const previous = new Set(review.files.flatMap(file => file.hunks.map(hunk => hunk.id)));
+    selected = new Set(value.files.flatMap(file => file.hunks.map(hunk => hunk.id))
+      .filter(id => !previous.has(id) || selected.has(id)));
   }
   review = value;
   section.classList.remove('hidden');
@@ -541,7 +559,8 @@ function renderContext(selections, usedTokens, budgetTokens) {
   const cards = selections.map(item => {
     const card = el('div', 'context-card');
     const top = el('div', 'context-card-top');
-    const nameEl = el('div', 'context-name');
+    const nameEl = el('button', 'context-name context-link');
+    nameEl.type = 'button';
     const normalized = String(item.path || '').replace(/\\/g, '/');
     const slashIdx = normalized.lastIndexOf('/');
     if (slashIdx >= 0) {
@@ -552,6 +571,9 @@ function renderContext(selections, usedTokens, budgetTokens) {
     } else {
       nameEl.textContent = normalized;
     }
+    if (item.line) nameEl.append(el('span', 'context-dir', `:${item.line}`));
+    nameEl.title = `Open ${normalized}${item.line ? `:${item.line}` : ''}`;
+    nameEl.addEventListener('click', () => post({ type: 'openContext', path: item.path }));
     top.append(nameEl, el('span', 'context-tok', `~${compactNum(item.tokens)} tok`));
     card.append(top);
 
@@ -599,6 +621,8 @@ function render(state) {
   $('activities').replaceChildren(...state.activities.map(renderActivity));
   renderContext(state.context || [], state.contextUsedTokens || 0, state.contextBudgetTokens || 0);
   renderModels(state.models, state.modelName);
+  verification = state.verification;
+  applying = Boolean(state.applying);
   renderReview(state.review);
   currentSessionId = state.sessionId || '';
   $('session').textContent = currentSessionId ? `TrueForge · ${currentSessionId}` : '';
@@ -607,8 +631,6 @@ function render(state) {
   $('cancel').disabled = !active || Boolean(state.cancelling);
   $('send').disabled = active || Boolean(state.cancelling);
   $('undo').disabled = !state.canUndo || active || Boolean(state.cancelling);
-  $('approve').disabled = Boolean(state.applying);
-  $('reject').disabled = Boolean(state.applying);
 }
 
 window.addEventListener('message', event => {
@@ -638,6 +660,11 @@ $('cancel').addEventListener('click', () => post({type:'cancel'}));
 $('undo').addEventListener('click', () => post({type:'undo'}));
 $('reject').addEventListener('click', () => review && post({type:'reject', proposalId:review.proposalId}));
 $('approve').addEventListener('click', () => review && post({type:'approve', proposalId:review.proposalId, selectedHunkIds:[...selected]}));
+$('verify').addEventListener('click', () => {
+  if (!review) return;
+  if (verification?.status === 'running') post({type:'cancelVerify'});
+  else post({type:'verify', proposalId:review.proposalId, selectedHunkIds:[...selected]});
+});
 $('model').addEventListener('change', event => {
   if (event.target.value !== currentModel) post({type:'model', modelName:event.target.value});
 });

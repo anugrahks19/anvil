@@ -674,3 +674,6 @@ textarea::placeholder { color: var(--vscode-input-placeholderForeground, var(--m
   .status.busy::before, .thinking-bar, .thinking-bar::before, .thinking-text, .thinking-text.phrase-in, .thinking-dots span, .stream.streaming::after { animation: none; }
   .thinking-text { color: var(--fg); background: none; }
 }
+.verification-result { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 12rem; overflow: auto; padding: 8px; border: 1px solid var(--vscode-panel-border); font-size: 11px; }
+.context-link { background: transparent; border: 0; color: var(--vscode-textLink-foreground); padding: 0; text-align: left; cursor: pointer; }
+.context-link:hover { text-decoration: underline; }

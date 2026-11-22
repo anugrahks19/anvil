@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { randomBytes } from 'node:crypto';
 import type { FileDiagnostics, FileIntent } from '../review/analysis';
+import type { ContextSelection } from '../context/assembly';
 
 export interface ReviewHunkView {
   id: string;
@@ -33,8 +34,11 @@ export type PanelAction =
   | { type: 'submit'; prompt: string }
   | { type: 'cancel' }
   | { type: 'approve'; proposalId: string; selectedHunkIds: string[] }
+  | { type: 'verify'; proposalId: string; selectedHunkIds: string[] }
+  | { type: 'cancelVerify' }
   | { type: 'reject'; proposalId: string }
   | { type: 'preview'; proposalId: string; path: string }
+  | { type: 'openContext'; path: string }
   | { type: 'undo' }
   | { type: 'model'; modelName: string }
   | { type: 'connectApi' }
@@ -64,11 +68,12 @@ interface PanelState {
   stream: string;
   reasoningSnippet: string;
   activities: string[];
-  context: Array<{ path: string; reason: string; tokens: number }>;
+  context: ContextSelection[];
   contextUsedTokens: number;
   contextBudgetTokens: number;
   telemetry?: TelemetryState;
   review?: ReviewView;
+  verification?: { proposalId: string; selection: string; status: 'running' | 'passed' | 'failed'; message: string };
   models: string[];
   modelName: string;
   sessionId?: string;
@@ -164,7 +169,9 @@ export class ForgePanel implements vscode.WebviewViewProvider {
     <section id="reviewSection" class="review hidden">
       <div class="section-head"><span class="section-title">Review changes</span></div>
       <div id="review"></div>
+      <pre id="verificationResult" class="verification-result hidden" aria-live="polite"></pre>
       <div class="review-actions">
+        <button id="verify" class="secondary" title="Run pytest on the selected hunks in a temporary copy">Verify selected</button>
         <button id="reject" class="secondary">Reject all</button>
         <button id="approve" class="primary">Apply selected</button>
       </div>
@@ -269,7 +276,13 @@ export class ForgePanel implements vscode.WebviewViewProvider {
   }
 
   setReview(review?: ReviewView): void {
+    if (review?.proposalId !== this.state.review?.proposalId) this.state.verification = undefined;
     this.state.review = review;
+    this.pushState();
+  }
+
+  setVerification(verification?: PanelState['verification']): void {
+    this.state.verification = verification;
     this.pushState();
   }
 
