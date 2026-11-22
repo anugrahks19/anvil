@@ -279,9 +279,9 @@ export class ForgePanel implements vscode.WebviewViewProvider {
   recordHarnessEvent(event: HarnessEvent): void {
     const threads = this.state.harness[event.type];
     this.state.harness[event.type] = { ...threads, [event.threadId]: event.phase };
-    const label = event.type === 'compaction' ? 'context compaction' : 'subagent';
-    const details = event.type === 'subagent' ? `: ${event.title}` : '';
-    this.addActivity(`TrueForge ${label} ${event.phase}${details}`);
+    this.addActivity(event.type === 'subagent'
+      ? `TrueForge subagent: ${event.phase} · ${event.title}`
+      : `TrueForge context compaction ${event.phase}`);
   }
 
   setContext(selections: PanelState['context'], usedTokens = 0, budgetTokens = 0): void {
