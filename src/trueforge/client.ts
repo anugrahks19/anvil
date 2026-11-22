@@ -243,10 +243,10 @@ export class ForgeClient {
           if (event.reasoningContent) this.emit({ type: 'reasoning', text: event.reasoningContent });
           if (event.content) this.emit({ type: 'delta', text: event.content });
         }
-        if (event.type === 'thread.context_compaction.started') {
+        if (event.type === 'thread.context_compaction_started') {
           this.emit({ type: 'compaction', phase: 'started' });
         }
-        if (event.type === 'thread.context_compaction.finished') {
+        if (event.type === 'thread.context_compaction_finished') {
           this.emit({ type: 'compaction', phase: 'finished' });
         }
         if (event.type === 'thread.created' && event.threadId && event.threadId !== 'main') {
